@@ -8,6 +8,7 @@ import org.bukkit.block.BlockFace;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Firework;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
@@ -19,11 +20,17 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.event.player.PlayerToggleSneakEvent;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static me.crylonz.DeadChest.*;
 import static me.crylonz.DeadChestManager.generateHologram;
@@ -39,12 +46,11 @@ public class DeadChestListener implements Listener {
     }
 
     public DeadChestConfig getConfig() {
-        return plugin.config;
+        return DeadChest.config;
     }
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerDeathEvent(PlayerDeathEvent e) {
-
 
         if (e.getKeepInventory()) {
             return;
@@ -54,23 +60,27 @@ public class DeadChestListener implements Listener {
 
         if (p == null
                 || config.getArray(ConfigKey.EXCLUDED_WORLDS).contains(p.getWorld().getName())
-                || (!getConfig().getBoolean(ConfigKey.GENERATE_DEADCHEST_IN_CREATIVE)) && p.getGameMode().equals(GameMode.CREATIVE)) {
+                || (!getConfig().getBoolean(ConfigKey.GENERATE_DEADCHEST_IN_CREATIVE))
+                        && p.getGameMode().equals(GameMode.CREATIVE)) {
             return;
         }
 
-        if (worldGuardCheck(p) && (p.hasPermission(Permission.GENERATE.label) || !getConfig().getBoolean(ConfigKey.REQUIRE_PERMISSION_TO_GENERATE))) {
+        if (worldGuardCheck(p) && (p.hasPermission(Permission.GENERATE.label)
+                || !getConfig().getBoolean(ConfigKey.REQUIRE_PERMISSION_TO_GENERATE))) {
             if ((playerDeadChestAmount(p) < getConfig().getInt(ConfigKey.MAX_DEAD_CHEST_PER_PLAYER) ||
                     getConfig().getInt(ConfigKey.MAX_DEAD_CHEST_PER_PLAYER) == 0) && p.getMetadata("NPC").isEmpty()) {
 
                 World world = p.getWorld();
                 Location loc = p.getLocation();
 
-                if (!getConfig().getBoolean(ConfigKey.GENERATE_ON_LAVA) && loc.getBlock().getType().equals(Material.LAVA)) {
+                if (!getConfig().getBoolean(ConfigKey.GENERATE_ON_LAVA)
+                        && loc.getBlock().getType().equals(Material.LAVA)) {
                     generateLog("Player dies in lava : No deadchest generated");
                     return;
                 }
 
-                if (!getConfig().getBoolean(ConfigKey.GENERATE_ON_WATER) && loc.getBlock().getType().equals(Material.WATER)) {
+                if (!getConfig().getBoolean(ConfigKey.GENERATE_ON_WATER)
+                        && loc.getBlock().getType().equals(Material.WATER)) {
                     generateLog("Player dies in water : No deadchest generated");
                     return;
                 }
@@ -90,7 +100,6 @@ public class DeadChestListener implements Listener {
                         return;
                     }
                 }
-
 
                 // Handle case bottom of the world
                 int minHeight = computeMinHeight();
@@ -177,17 +186,20 @@ public class DeadChestListener implements Listener {
                     }
 
                     if (p.getInventory().getHelmet() != null
-                            && p.getInventory().getHelmet().getEnchantments().containsKey(Enchantment.VANISHING_CURSE)) {
+                            && p.getInventory().getHelmet().getEnchantments()
+                                    .containsKey(Enchantment.VANISHING_CURSE)) {
                         p.getInventory().setHelmet(null);
                     }
 
                     if (p.getInventory().getChestplate() != null
-                            && p.getInventory().getChestplate().getEnchantments().containsKey(Enchantment.VANISHING_CURSE)) {
+                            && p.getInventory().getChestplate().getEnchantments()
+                                    .containsKey(Enchantment.VANISHING_CURSE)) {
                         p.getInventory().setChestplate(null);
                     }
 
                     if (p.getInventory().getLeggings() != null
-                            && p.getInventory().getLeggings().getEnchantments().containsKey(Enchantment.VANISHING_CURSE)) {
+                            && p.getInventory().getLeggings().getEnchantments()
+                                    .containsKey(Enchantment.VANISHING_CURSE)) {
                         p.getInventory().setLeggings(null);
                     }
 
@@ -196,7 +208,8 @@ public class DeadChestListener implements Listener {
                         p.getInventory().setBoots(null);
                     }
 
-                    if (p.getInventory().getItemInOffHand().getEnchantments().containsKey(Enchantment.VANISHING_CURSE)) {
+                    if (p.getInventory().getItemInOffHand().getEnchantments()
+                            .containsKey(Enchantment.VANISHING_CURSE)) {
                         p.getInventory().setItemInOffHand(null);
                     }
 
@@ -206,7 +219,26 @@ public class DeadChestListener implements Listener {
                         }
                     }
 
-                    chestData.add(new ChestData(p.getInventory(), b.getLocation(), p, p.hasPermission(Permission.INFINITY_CHEST.label), holoTime, holoName));
+                    chestData.add(new ChestData(p.getInventory(), b.getLocation(), p,
+                            p.hasPermission(Permission.INFINITY_CHEST.label), holoTime, holoName));
+                    Firework firework = p.getPlayer().getWorld().spawn(b.getLocation(), Firework.class);
+                    FireworkMeta data = firework.getFireworkMeta();
+                    data.addEffects(FireworkEffect.builder().withColor(Color.PURPLE).withColor(Color.GREEN)
+                            .withFlicker().build());
+                    data.setPower(1);
+                    firework.setFireworkMeta(data);
+
+                    ScheduledExecutorService ses = Executors.newSingleThreadScheduledExecutor();
+
+                    ses.scheduleAtFixedRate(new Runnable() {
+                        @Override
+                        public void run() {
+                            // code to run
+                        }
+                    }, 0, 1, TimeUnit.SECONDS);
+
+                    // when finished
+                    ses.shutdown();
 
                     e.getDrops().clear();
                     p.getInventory().clear();
@@ -219,10 +251,12 @@ public class DeadChestListener implements Listener {
                     }
 
                     fileManager.saveModification();
-                    generateLog("New deadchest for [" + p.getName() + "] in " + b.getWorld().getName() + " at X:" + b.getX() + " Y:" + b.getY() + " Z:" + b.getZ());
+                    generateLog("New deadchest for [" + p.getName() + "] in " + b.getWorld().getName() + " at X:"
+                            + b.getX() + " Y:" + b.getY() + " Z:" + b.getZ());
 
                     if (getConfig().getBoolean(ConfigKey.LOG_DEADCHEST_ON_CONSOLE))
-                        log.info("New deadchest for [" + p.getName() + "] at X:" + b.getX() + " Y:" + b.getY() + " Z:" + b.getZ());
+                        log.info("New deadchest for [" + p.getName() + "] at X:" + b.getX() + " Y:" + b.getY() + " Z:"
+                                + b.getZ());
                 } else {
                     generateLog("Player [" + p.getName() + "] died without inventory : No Deadchest generated");
                 }
@@ -254,11 +288,16 @@ public class DeadChestListener implements Listener {
 
                 for (ChestData cd : chestData) {
                     if (cd.getChestLocation().equals(block.getLocation())) {
-                        // if everybody can open chest or if the chest is the chest of the current player
-                        if (!getConfig().getBoolean(ConfigKey.ONLY_OWNER_CAN_OPEN_CHEST) || playerUUID.equals(cd.getPlayerUUID()) || playerHasPermission) {
+                        // if everybody can open chest or if the chest is the chest of the current
+                        // player
+                        if (!getConfig().getBoolean(ConfigKey.ONLY_OWNER_CAN_OPEN_CHEST)
+                                || playerUUID.equals(cd.getPlayerUUID()) || playerHasPermission) {
 
-                            if (!player.hasPermission(Permission.GET.label) && getConfig().getBoolean(ConfigKey.REQUIRE_PERMISSION_TO_GET_CHEST)) {
-                                generateLog(String.format("Player [%s] need to have deadchest.get permission to generate", player.getName()));
+                            if (!player.hasPermission(Permission.GET.label)
+                                    && getConfig().getBoolean(ConfigKey.REQUIRE_PERMISSION_TO_GET_CHEST)) {
+                                generateLog(
+                                        String.format("Player [%s] need to have deadchest.get permission to generate",
+                                                player.getName()));
                                 player.sendMessage(local.get("loc_prefix") + local.get("loc_noPermsToGet"));
                                 e.setCancelled(true);
                                 return;
@@ -267,7 +306,8 @@ public class DeadChestListener implements Listener {
                             Bukkit.getServer().getPluginManager().callEvent(deadchestPickUpEvent);
 
                             if (!deadchestPickUpEvent.isCancelled()) {
-                                generateLog("Deadchest of [" + cd.getPlayerName() + "] was taken by [" + player.getName() + "] in " + playerWorld.getName());
+                                generateLog("Deadchest of [" + cd.getPlayerName() + "] was taken by ["
+                                        + player.getName() + "] in " + playerWorld.getName());
 
                                 // put all item on the inventory
                                 if (getConfig().getInt(ConfigKey.DROP_MODE) == 1) {
@@ -353,7 +393,6 @@ public class DeadChestListener implements Listener {
         }
     }
 
-
     @EventHandler
     public void onEntityExplodeEvent(EntityExplodeEvent e) {
         chestExplosionHandler(e);
@@ -379,11 +418,13 @@ public class DeadChestListener implements Listener {
                     if (isGraveBlock(block.getType()) && cd.getChestLocation().equals(block.getLocation())) {
                         if (getConfig().getBoolean(ConfigKey.INDESTRUCTIBLE_CHEST)) {
                             blocklist.remove(block);
-                            generateLog("Deadchest of [" + cd.getPlayerName() + "] was protected from explosion in " + Objects.requireNonNull(cd.getChestLocation().getWorld()).getName());
+                            generateLog("Deadchest of [" + cd.getPlayerName() + "] was protected from explosion in "
+                                    + Objects.requireNonNull(cd.getChestLocation().getWorld()).getName());
                         } else {
                             cd.removeArmorStand();
                             chestData.remove(cd);
-                            generateLog("Deadchest of [" + cd.getPlayerName() + "] was blown up in " + Objects.requireNonNull(cd.getChestLocation().getWorld()).getName());
+                            generateLog("Deadchest of [" + cd.getPlayerName() + "] was blown up in "
+                                    + Objects.requireNonNull(cd.getChestLocation().getWorld()).getName());
                         }
                         break;
                     }
@@ -421,7 +462,8 @@ public class DeadChestListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH)
     public void onBlockPistonExtendEvent(BlockPistonExtendEvent event) {
         for (Block block : event.getBlocks()) {
-            if (block != null && (block.getType() == Material.PLAYER_HEAD || block.getType() == Material.PLAYER_WALL_HEAD))
+            if (block != null
+                    && (block.getType() == Material.PLAYER_HEAD || block.getType() == Material.PLAYER_WALL_HEAD))
                 for (ChestData cd : chestData) {
                     if (cd.getChestLocation().equals(block.getLocation())) {
                         event.setCancelled(true);
@@ -431,5 +473,3 @@ public class DeadChestListener implements Listener {
         }
     }
 }
-
-
